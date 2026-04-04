@@ -28,6 +28,8 @@ High-level flow:
 
 `CloudTrail -> logs AWS management activity`
 
+A diagram and component table are in [docs/architecture.md](docs/architecture.md).
+
 ## Project Structure
 
 ```text
@@ -35,9 +37,11 @@ High-level flow:
 |-- .gitignore
 |-- README.md
 |-- docs/
+|   |-- architecture.md
 |   |-- risk-table.md
 |   `-- validation.md
 `-- terraform/
+    |-- .terraform.lock.hcl
     |-- main.tf
     |-- outputs.tf
     |-- terraform.tfvars.example
