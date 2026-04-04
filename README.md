@@ -1,134 +1,172 @@
-# AWS Cloud Security Lab: Misconfiguration Detection and Remediation
+# AWS Cloud Security Lab
 
-This project builds a small AWS environment with Terraform, intentionally introduces common cloud security misconfigurations, and then remediates them using least-privilege and secure configuration practices.
+**Misconfiguration detection and remediation on AWS** — a small, reproducible lab built with Terraform. Deploy a baseline environment, flip into intentional misconfigurations, then remediate using least privilege and document the full lifecycle.
 
-It is designed as a beginner-friendly portfolio project that demonstrates:
+[![Terraform](https://img.shields.io/badge/IaC-Terraform-844FBA?logo=terraform&logoColor=white)](https://www.terraform.io/)
+[![AWS](https://img.shields.io/badge/Cloud-AWS-232F3E?logo=amazon-web-services&logoColor=white)](https://aws.amazon.com/)
 
-- AWS infrastructure setup
-- cloud security assessment
-- risk analysis
-- remediation
-- monitoring and validation
+---
+
+## Table of contents
+
+- [Overview](#overview)
+- [What you will demonstrate](#what-you-will-demonstrate)
+- [Tech stack](#tech-stack)
+- [Architecture](#architecture)
+- [Repository layout](#repository-layout)
+- [Lab modes](#lab-modes)
+- [Misconfigurations and remediation](#misconfigurations-and-remediation)
+- [Getting started](#getting-started)
+- [Recommended demo workflow](#recommended-demo-workflow)
+- [Validation and evidence](#validation-and-evidence)
+- [Documentation](#documentation)
+- [Cost and cleanup](#cost-and-cleanup)
+- [Lessons learned](#lessons-learned)
+
+---
+
+## Overview
+
+This project is a **hands-on cloud security exercise**, not just a static deployment. You provision a minimal AWS footprint (VPC, public subnet, EC2, S3, IAM, security groups, CloudTrail), then use a single variable (`lab_mode`) to switch between:
+
+1. A **secure baseline**  
+2. A **deliberately insecure** configuration  
+3. A **remediated** configuration aligned with least privilege  
+
+That workflow mirrors how security work happens in practice: build, assess risk, fix, and validate.
+
+---
+
+## What you will demonstrate
+
+| Skill area | How this project shows it |
+|------------|---------------------------|
+| Cloud infrastructure | VPC networking, EC2, S3, IAM, security groups |
+| Infrastructure as code | Terraform modules in one place, repeatable environments |
+| Threat understanding | Why public data, open SSH, and excessive IAM matter |
+| Remediation | Block Public Access, narrow SG rules, scoped IAM policies |
+| Monitoring | CloudTrail for audit visibility before and after changes |
+
+---
+
+## Tech stack
+
+| Tool / service | Role |
+|----------------|------|
+| **Terraform** | Defines and applies all infrastructure |
+| **Amazon VPC** | Isolated network for the lab |
+| **Amazon EC2** | Linux instance with a simple HTTP demo app |
+| **Amazon S3** | Lab data bucket + separate bucket for CloudTrail logs |
+| **AWS IAM** | Instance role for EC2 → S3 access (safe vs overly broad) |
+| **AWS CloudTrail** | Management event logging |
+
+---
 
 ## Architecture
 
-The lab includes:
+**Resources provisioned**
 
-- `1 VPC`
-- `1 public subnet`
-- `1 EC2 instance`
-- `1 security group`
-- `1 S3 bucket`
-- `1 IAM role attached to EC2`
-- `1 CloudTrail trail`
+- 1 VPC, 1 public subnet, internet gateway, route table  
+- 1 EC2 instance (Apache serves a small page; user data uploads `sample.txt` to S3)  
+- 1 security group (HTTP from the internet; SSH varies by mode)  
+- 1 S3 bucket for lab objects  
+- 1 IAM role + instance profile attached to EC2  
+- 1 CloudTrail trail writing to a dedicated S3 log bucket  
 
-High-level flow:
+**Traffic and access (conceptual)**
 
-`Internet -> Security Group -> EC2 in Public Subnet -> IAM Role -> S3 Bucket`
+`Internet → Security Group → EC2 (public subnet) → IAM role → S3 lab bucket`  
 
-`CloudTrail -> logs AWS management activity`
+`CloudTrail → S3 log bucket` (audit trail for configuration changes)
 
-A diagram and component table are in [docs/architecture.md](docs/architecture.md).
+A **Mermaid diagram** and component table live in [docs/architecture.md](docs/architecture.md).
 
-## Project Structure
+---
+
+## Repository layout
 
 ```text
 .
-|-- .gitignore
-|-- README.md
-|-- docs/
-|   |-- architecture.md
-|   |-- risk-table.md
-|   `-- validation.md
-`-- terraform/
-    |-- .terraform.lock.hcl
-    |-- main.tf
-    |-- outputs.tf
-    |-- terraform.tfvars.example
-    `-- variables.tf
+├── README.md
+├── .gitignore
+├── docs/
+│   ├── architecture.md    # Diagram + component reference
+│   ├── risk-table.md      # Misconfiguration / risk / impact / fix
+│   └── validation.md      # How to prove remediations worked
+└── terraform/
+    ├── main.tf
+    ├── variables.tf
+    ├── outputs.tf
+    ├── terraform.tfvars.example
+    └── .terraform.lock.hcl
 ```
 
-## What The Terraform Code Does
+Copy `terraform/terraform.tfvars.example` to `terraform/terraform.tfvars` (that file is gitignored so secrets and personal values stay local).
 
-The Terraform code supports three modes through the `lab_mode` variable:
+---
 
-- `baseline`: secure starting environment
-- `insecure`: intentionally vulnerable configuration for demonstration
-- `remediated`: secure post-fix configuration
+## Lab modes
 
-This makes the project easier to explain because you can show:
+Set `lab_mode` in `terraform.tfvars`:
 
-1. the normal setup
-2. the vulnerable state
-3. the corrected secure state
+| Mode | Purpose |
+|------|---------|
+| `baseline` | Secure starting point for demos or first deploy |
+| `insecure` | Intentional misconfigurations for assessment and screenshots |
+| `remediated` | Same as baseline posture: least privilege and locked-down S3 |
 
-## Services Created
+After changing `lab_mode`, run `terraform apply` to converge the environment.
 
-The code provisions:
+---
 
-- custom VPC with DNS support
-- public subnet
-- internet gateway and route table
-- EC2 instance with a small Apache web server
-- S3 bucket for sample data
-- IAM role and instance profile for EC2
-- CloudTrail with a dedicated log bucket
+## Misconfigurations and remediation
 
-## Intentional Misconfigurations
+When `lab_mode = "insecure"`:
 
-When `lab_mode = "insecure"`, the Terraform code introduces these issues:
+| Issue | What changes | Risk |
+|-------|----------------|------|
+| Public S3 | Block Public Access off + public read bucket policy | Unauthorized object read from the internet |
+| Open SSH | Port 22 from `0.0.0.0/0` | Brute-force and unauthorized access attempts |
+| Broad IAM | `s3:*` on `*` for the EC2 role | Large blast radius if the instance is compromised |
 
-### 1. Public S3 bucket
+When `lab_mode = "baseline"` or `remediated`:
 
-- S3 Block Public Access is disabled
-- a public-read bucket policy is added
+- SSH limited to `my_ip_cidr`  
+- S3 Block Public Access on; no public bucket policy  
+- IAM limited to required actions on the lab bucket only  
+- Default S3 encryption enabled  
+- CloudTrail remains on  
 
-Risk:
-Anyone on the internet may read bucket objects.
+Detailed narrative: [docs/risk-table.md](docs/risk-table.md).
 
-### 2. SSH open to the world
+**Before / after (summary)**
 
-- EC2 port `22` is opened to `0.0.0.0/0`
+| Area | Insecure | Baseline / remediated |
+|------|----------|------------------------|
+| SSH | `0.0.0.0/0` | Your IP only (`my_ip_cidr`) |
+| S3 public access | Allowed | Blocked |
+| IAM (S3) | `s3:*` on `*` | List + get/put on lab bucket only |
+| CloudTrail | On | On |
 
-Risk:
-The management interface is exposed to the internet and vulnerable to brute-force attempts.
+---
 
-### 3. Overly broad IAM permissions
+## Getting started
 
-- the EC2 IAM role is given `s3:*` on `*`
+### Prerequisites
 
-Risk:
-If EC2 is compromised, the attacker can abuse more S3 access than required.
+- AWS account and credentials configured (for example `aws configure`)  
+- [Terraform](https://developer.hashicorp.com/terraform/install) installed  
+- EC2 key pair in your chosen region if you want SSH (optional)  
+- A **globally unique** S3 bucket name  
 
-## Remediation Strategy
+### Configure
 
-When `lab_mode = "remediated"`, the project applies secure controls:
+```powershell
+cd terraform
+Copy-Item terraform.tfvars.example terraform.tfvars
+```
 
-- SSH restricted to your trusted IP
-- S3 Block Public Access enabled
-- public bucket policy removed
-- least-privilege IAM policy scoped to the lab bucket
-- S3 encryption enabled
-- CloudTrail remains enabled for visibility
-
-## How To Run The Project
-
-## Prerequisites
-
-You need:
-
-- an AWS account
-- Terraform installed
-- AWS credentials configured locally
-- an EC2 key pair in your target region if you want SSH access
-
-## Setup
-
-1. Go to the `terraform/` directory.
-2. Copy `terraform.tfvars.example` to `terraform.tfvars`.
-3. Replace the sample values with your own bucket name, key pair name, and public IP CIDR.
-
-Example:
+Edit `terraform.tfvars` — example:
 
 ```hcl
 aws_region        = "ap-south-1"
@@ -140,99 +178,84 @@ key_name          = "your-ec2-keypair-name"
 lab_mode          = "baseline"
 ```
 
-## Terraform Commands
+Use your real public IP as `x.x.x.x/32` for SSH in secure modes.
 
-Initialize:
+### Deploy
 
 ```bash
 terraform init
-```
-
-Validate:
-
-```bash
 terraform validate
-```
-
-Preview changes:
-
-```bash
 terraform plan
-```
-
-Apply:
-
-```bash
 terraform apply
 ```
 
-Destroy resources when finished:
+### Verify it is working
+
+```bash
+terraform output web_url
+```
+
+Open the printed URL in a browser — you should see the lab page. In S3, confirm `sample.txt` exists in your lab bucket.
+
+### Tear down
 
 ```bash
 terraform destroy
 ```
 
-## Recommended Demo Workflow
+---
 
-Use this order for a strong portfolio story:
+## Recommended demo workflow
 
-1. Deploy with `lab_mode = "baseline"`
-2. Capture screenshots of the secure starting state
-3. Change to `lab_mode = "insecure"`
-4. Run `terraform apply`
-5. Observe the misconfigurations and capture screenshots
-6. Document the risk and impact of each issue
-7. Change to `lab_mode = "remediated"`
-8. Run `terraform apply`
-9. Validate that the fixes worked
-10. Destroy the environment after testing
+Use this sequence for portfolios, interviews, or coursework writeups:
 
-## Before / After Summary
+1. Deploy with `lab_mode = "baseline"` and capture “secure” screenshots.  
+2. Switch to `lab_mode = "insecure"`, `terraform apply`, capture misconfigurations (console: S3, SG, IAM).  
+3. Write up **misconfiguration → risk → impact → detection → fix** for each issue.  
+4. Switch to `lab_mode = "remediated"`, `terraform apply`, re-check settings.  
+5. Use CloudTrail event history to show configuration changes over time.  
+6. Run `terraform destroy` when finished.  
 
-| Area | Insecure Mode | Remediated Mode |
-|---|---|---|
-| SSH access | `0.0.0.0/0` | `my_ip_cidr` only |
-| S3 public access | Allowed | Blocked |
-| IAM policy | `s3:*` on `*` | Bucket-scoped least privilege |
-| CloudTrail | Enabled | Enabled |
+---
 
-## Validation
+## Validation and evidence
 
-Use the checks in `docs/validation.md` to verify the remediations.
+Follow [docs/validation.md](docs/validation.md) for step-by-step checks (public URL no longer works, SSH scope, IAM policy text, CloudTrail events).
 
-Key validation points:
+**Optional portfolio assets** (add under `docs/screenshots/` or your report):
 
-- public S3 object access should fail after remediation
-- SSH should no longer be open to everyone
-- EC2 IAM permissions should be scoped only to the lab bucket
-- CloudTrail should show configuration changes
+- EC2 security group rules (before / after)  
+- S3 Block Public Access and bucket policy (before / after)  
+- IAM policy JSON or console summary (before / after)  
+- Browser hitting `web_url` and CloudTrail filtered events  
 
-## Risk Analysis
+---
 
-The risk table is available in `docs/risk-table.md`.
+## Documentation
 
-## Lessons Learned
+| Document | Contents |
+|----------|----------|
+| [docs/architecture.md](docs/architecture.md) | Diagram, components, mode behavior |
+| [docs/risk-table.md](docs/risk-table.md) | Risk table for writeups |
+| [docs/validation.md](docs/validation.md) | Post-remediation verification |
 
-- Misconfigurations in AWS can quickly expose systems and data.
-- Least privilege reduces blast radius if a resource is compromised.
-- CloudTrail improves visibility and helps validate configuration changes.
-- Secure cloud design is not only about deployment, but also about review and remediation.
+---
 
-## Cost Note
+## Cost and cleanup
 
-Keep the lab small and destroy resources when finished to avoid unnecessary AWS charges. Pay special attention to:
+This lab is sized for learning, but **EC2 runtime, S3 storage, and CloudTrail log storage** can incur charges. Use small instance types where possible, delete the stack with `terraform destroy` when you are done, and empty or lifecycle-manage the trail bucket if you keep the account active.
 
-- EC2 runtime
-- S3 storage
-- CloudTrail log storage
+---
 
-## Portfolio Value
+## Lessons learned
 
-This project is useful because it demonstrates both cloud and security skills:
+- Small misconfigurations (public buckets, `0.0.0.0/0` on SSH, wildcard IAM) create outsized risk.  
+- **Least privilege** limits damage if one resource is compromised.  
+- **CloudTrail** supports both detection narratives and proof that you changed settings deliberately.  
+- Treating security as **deploy → assess → remediate → validate** is closer to real work than “terraform apply once and forget.”
 
-- infrastructure provisioning
-- practical misconfiguration analysis
-- remediation with least privilege
-- validation and monitoring
+---
 
-It is stronger than a normal deployment project because it shows why cloud settings matter from a security perspective.
+## License
+
+This repository is provided for **educational and portfolio** use. Review AWS terms and your organization’s policies before deploying in production or shared accounts.
